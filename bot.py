@@ -48,6 +48,7 @@ def home_kb(user_id: int):
 def admin_kb():
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📤 Загрузить почты", callback_data="upload")],
+        [InlineKeyboardButton(text="🗑 Управление почтами", callback_data="manage_mails")],
         [InlineKeyboardButton(text="👥 Пользователи", callback_data="users")],
         [InlineKeyboardButton(text="⚙️ Лимит почт/день", callback_data="limit")],
         [InlineKeyboardButton(text="📊 Статистика", callback_data="stats")],
@@ -301,6 +302,165 @@ async def handle_document(message: Message):
         f"📦 Всего доступно сейчас: <b>{available}</b>",
         parse_mode="HTML",
         reply_markup=back_admin_kb()
+    )
+
+
+# ==================== УПРАВЛЕНИЕ ПОЧТАМИ ====================
+
+@router.callback_query(F.data == "manage_mails")
+async def manage_mails(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        await callback.answer("⛔ Нет доступа", show_alert=True)
+        return
+
+    available = await db.count_available_mails()
+    used = await db.count_used_mails()
+
+    await callback.message.edit_text(
+        f"🗑 <b>Управление почтами</b>\n\n"
+        f"📦 Неиспользованных: <b>{available}</b>\n"
+        f"✅ Использованных: <b>{used}</b>\n"
+        f"📊 Всего в базе: <b>{available + used}</b>\n\n"
+        f"Выберите что удалить:",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🗑 Удалить неиспользованные", callback_data="del_unused")],
+            [InlineKeyboardButton(text="🗑 Удалить использованные", callback_data="del_used")],
+            [InlineKeyboardButton(text="⚠️ Удалить ВСЕ почты", callback_data="del_all")],
+            [InlineKeyboardButton(text="◀️ Админ-панель", callback_data="admin")],
+        ])
+    )
+
+
+@router.callback_query(F.data == "del_unused")
+async def del_unused_confirm(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        await callback.answer("⛔ Нет доступа", show_alert=True)
+        return
+
+    count = await db.count_available_mails()
+    if count == 0:
+        await callback.answer("Неиспользованных почт нет", show_alert=True)
+        return
+
+    await callback.message.edit_text(
+        f"⚠️ <b>Подтверждение</b>\n\n"
+        f"Вы уверены, что хотите удалить\n"
+        f"<b>{count}</b> неиспользованных почт?\n\n"
+        f"Это действие нельзя отменить!",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text=f"✅ Да, удалить {count} почт", callback_data="confirm_del_unused")],
+            [InlineKeyboardButton(text="❌ Отмена", callback_data="manage_mails")],
+        ])
+    )
+
+
+@router.callback_query(F.data == "confirm_del_unused")
+async def confirm_del_unused(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        await callback.answer("⛔ Нет доступа", show_alert=True)
+        return
+
+    deleted = await db.delete_unused_mails()
+    await callback.message.edit_text(
+        f"✅ <b>Удалено!</b>\n\n"
+        f"Удалено <b>{deleted}</b> неиспользованных почт.\n\n"
+        f"Теперь можете загрузить новые.",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📤 Загрузить почты", callback_data="upload")],
+            [InlineKeyboardButton(text="◀️ Админ-панель", callback_data="admin")],
+        ])
+    )
+
+
+@router.callback_query(F.data == "del_used")
+async def del_used_confirm(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        await callback.answer("⛔ Нет доступа", show_alert=True)
+        return
+
+    count = await db.count_used_mails()
+    if count == 0:
+        await callback.answer("Использованных почт нет", show_alert=True)
+        return
+
+    await callback.message.edit_text(
+        f"⚠️ <b>Подтверждение</b>\n\n"
+        f"Вы уверены, что хотите удалить\n"
+        f"<b>{count}</b> использованных почт?\n\n"
+        f"История выдачи будет потеряна!\n"
+        f"Это действие нельзя отменить!",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text=f"✅ Да, удалить {count} почт", callback_data="confirm_del_used")],
+            [InlineKeyboardButton(text="❌ Отмена", callback_data="manage_mails")],
+        ])
+    )
+
+
+@router.callback_query(F.data == "confirm_del_used")
+async def confirm_del_used(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        await callback.answer("⛔ Нет доступа", show_alert=True)
+        return
+
+    deleted = await db.delete_used_mails()
+    await callback.message.edit_text(
+        f"✅ <b>Удалено!</b>\n\n"
+        f"Удалено <b>{deleted}</b> использованных почт.",
+        parse_mode="HTML",
+        reply_markup=back_admin_kb()
+    )
+
+
+@router.callback_query(F.data == "del_all")
+async def del_all_confirm(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        await callback.answer("⛔ Нет доступа", show_alert=True)
+        return
+
+    available = await db.count_available_mails()
+    used = await db.count_used_mails()
+    total = available + used
+    if total == 0:
+        await callback.answer("База почт уже пуста", show_alert=True)
+        return
+
+    await callback.message.edit_text(
+        f"🚨 <b>ВНИМАНИЕ!</b>\n\n"
+        f"Вы собираетесь удалить <b>ВСЕ</b> почты:\n"
+        f"📦 Неиспользованных: {available}\n"
+        f"✅ Использованных: {used}\n"
+        f"📊 Итого: <b>{total}</b>\n\n"
+        f"Вся история выдачи будет потеряна!\n"
+        f"Это действие <b>НЕЛЬЗЯ</b> отменить!",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text=f"🚨 Да, удалить ВСЕ {total} почт", callback_data="confirm_del_all")],
+            [InlineKeyboardButton(text="❌ Отмена", callback_data="manage_mails")],
+        ])
+    )
+
+
+@router.callback_query(F.data == "confirm_del_all")
+async def confirm_del_all(callback: CallbackQuery):
+    if callback.from_user.id != ADMIN_ID:
+        await callback.answer("⛔ Нет доступа", show_alert=True)
+        return
+
+    deleted = await db.delete_all_mails()
+    await callback.message.edit_text(
+        f"✅ <b>Всё удалено!</b>\n\n"
+        f"Удалено <b>{deleted}</b> почт.\n"
+        f"База почт пуста.\n\n"
+        f"Загрузите новый файл.",
+        parse_mode="HTML",
+        reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="📤 Загрузить почты", callback_data="upload")],
+            [InlineKeyboardButton(text="◀️ Админ-панель", callback_data="admin")],
+        ])
     )
 
 
