@@ -123,6 +123,21 @@ class Database:
                 "SELECT COUNT(*) FROM mails WHERE is_used = TRUE AND used_at::date = CURRENT_DATE"
             )
 
+    async def delete_unused_mails(self) -> int:
+        async with self.pool.acquire() as conn:
+            result = await conn.execute("DELETE FROM mails WHERE is_used = FALSE")
+            return int(result.split()[-1])
+
+    async def delete_used_mails(self) -> int:
+        async with self.pool.acquire() as conn:
+            result = await conn.execute("DELETE FROM mails WHERE is_used = TRUE")
+            return int(result.split()[-1])
+
+    async def delete_all_mails(self) -> int:
+        async with self.pool.acquire() as conn:
+            result = await conn.execute("DELETE FROM mails")
+            return int(result.split()[-1])
+
     async def get_user_today_count(self, user_id: int) -> int:
         async with self.pool.acquire() as conn:
             return await conn.fetchval(
